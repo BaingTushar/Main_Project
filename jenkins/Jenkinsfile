@@ -1,0 +1,55 @@
+pipeline {
+    agent any
+    environment {
+        DOCKER_HUB_USER = 'your-dockerhub-username'
+        IMAGE_NAME_BACKEND = "${DOCKER_HUB_USER}/three-tier-backend"
+        IMAGE_NAME_FRONTEND = "${DOCKER_HUB_USER}/three-tier-frontend"
+        TAG = "${BUILD_NUMBER}"
+    }
+    stages {
+        stage('Checkout Code') {
+            steps {
+                git branch: 'main', url: 'https://github.com/your-username/three-tier-gitops.git'
+            }
+        }
+        stage('Build Docker Images') {
+            steps {
+                sh "docker build -t ${IMAGE_NAME_BACKEND}:${TAG} ./app/backend"
+                sh "docker build -t ${IMAGE_NAME_FRONTEND}:${TAG} ./app/frontend"
+            }
+        }
+        stage('Push to Docker Hub') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                    sh "echo ${PASS} | docker login -u ${USER} --password-stdin"
+                    sh "docker push ${IMAGE_NAME_BACKEND}:${TAG}"
+                    sh "docker push ${IMAGE_NAME_FRONTEND}:${TAG}"
+                }
+            }
+        }
+        stage('Update GitOps Manifests') {
+            steps {
+                // Modifies the image tag in the Git repository so ArgoCD can detect the change
+                withCredentials([usernamePassword(credentialsId: 'github-token', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN')]) {
+                    sh """
+                        sed -i 's|image: '${IMAGE_NAME_BACKEND}'.*|image: '${IMAGE_NAME_BACKEND}:${TAG}'|g' k8s-manifests/backend-deploy.yaml
+                        sed -i 's|image: '${IMAGE_NAME_FRONTEND}'.*|image: '${IMAGE_NAME_FRONTEND}:${TAG}'|g' k8s-manifests/frontend-deploy.yaml
+                        git config user.email "jenkins@ci.com"
+                        git config user.name "Jenkins CI"
+                        git add k8s-manifests/
+                        git commit -m "Bump image tags to version ${TAG} [skip ci]"
+                        git push https://${GH_TOKEN}@github.com/your-username/three-tier-gitops.git main
+                    """
+                }
+            }
+        }
+    }
+    post {
+        always {
+            // Email notifications setup
+            mail to: 'admin@yourdomain.com',
+                 subject: "Jenkins Build Status: ${currentBuild.currentResult}",
+                 body: "Project: ${env.JOB_NAME}\nBuild Number: ${env.BUILD_NUMBER}\nURL: ${env.BUILD_URL}"
+        }
+    }
+}
