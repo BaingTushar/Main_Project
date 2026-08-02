@@ -1,0 +1,15 @@
+# Terraform local directory
+**/.terraform/
+
+# Terraform state files (crucial for security!)
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI configuration files
+.terraformrc
+terraform.rc
